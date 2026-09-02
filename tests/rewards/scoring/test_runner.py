@@ -326,3 +326,73 @@ def test_score_dataset_with_reward_model_builds_reproducible_robometer_provenanc
             "options": fake_scorer.options,
         },
     }
+
+
+def test_score_dataset_with_reward_model_builds_reproducible_rynnvalue_provenance(monkeypatch, tmp_path):
+    import lerobot.rewards.rynnvalue.modeling_rynnvalue as modeling_rynnvalue
+    import lerobot.rewards.rynnvalue.scoring_rynnvalue as scoring_rynnvalue
+    import lerobot.rewards.scoring.runner as runner
+
+    class FakeRynnValueRewardModel:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(
+                type="rynnvalue",
+                pretrained_path="model/default",
+                pretrained_revision="config-revision",
+            )
+
+    fake_scorer = SimpleNamespace(options={"batch_size": 2, "inference_fps": 1.0, "horizon_s": 12.0})
+    captured: dict[str, object] = {}
+    expected_summary = SimpleNamespace(artifact_path=tmp_path / "signals.parquet")
+
+    def fake_make_scorer(model, config, **kwargs):
+        captured["make_scorer"] = (model, config, kwargs)
+        return fake_scorer
+
+    def fake_score_dataset(dataset, scorer, **kwargs):
+        captured["score_dataset"] = (dataset, scorer, kwargs)
+        return expected_summary
+
+    monkeypatch.setattr(modeling_rynnvalue, "RynnValueRewardModel", FakeRynnValueRewardModel)
+    monkeypatch.setattr(scoring_rynnvalue, "make_rynnvalue_frame_scorer", fake_make_scorer)
+    monkeypatch.setattr(runner, "score_dataset", fake_score_dataset)
+
+    dataset = SimpleNamespace(repo_id="user/dataset", revision="dataset-commit", fps=30.0)
+    model = FakeRynnValueRewardModel()
+    output_path = tmp_path / "signals.parquet"
+    summary = score_dataset_with_reward_model(
+        dataset,
+        model,
+        output_path=output_path,
+        model_id="user/rynnvalue",
+        model_revision="model-commit",
+        episode_indices=[2, 1],
+        batch_size=2,
+        inference_fps=1.0,
+        max_frames=8,
+        horizon_s=12.0,
+    )
+
+    assert summary is expected_summary
+    _, _, make_kwargs = captured["make_scorer"]
+    assert make_kwargs == {
+        "dataset_fps": 30.0,
+        "batch_size": 2,
+        "inference_fps": 1.0,
+        "max_frames": 8,
+        "horizon_s": 12.0,
+    }
+    _, _, score_kwargs = captured["score_dataset"]
+    assert score_kwargs["output_path"] == output_path
+    assert score_kwargs["episode_indices"] == [2, 1]
+    assert score_kwargs["provenance"] == {
+        "schema_version": 1,
+        "lerobot_version": __import__("lerobot").__version__,
+        "dataset": {"repo_id": "user/dataset", "revision": "dataset-commit"},
+        "model": {"type": "rynnvalue", "id": "user/rynnvalue", "revision": "model-commit"},
+        "adapter": {
+            "id": "lerobot.rynnvalue.causal_prefix",
+            "version": 1,
+            "options": fake_scorer.options,
+        },
+    }

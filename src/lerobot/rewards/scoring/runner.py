@@ -316,33 +316,50 @@ def score_dataset_with_reward_model(
     resume: bool = True,
     batch_size: int = 32,
     num_subsampled_frames: int = 4,
+    inference_fps: float = 1.0,
+    max_frames: int | None = 8,
+    horizon_s: float | None = None,
 ) -> ScoringSummary:
     """Score a dataset with the standard adapter for a loaded reward model.
 
-    PR-2 intentionally supports only RoboMeter. Additional model adapters are
-    added as complete vertical slices instead of through a speculative generic
-    model-output contract.
+    Supported models are added as complete vertical slices instead of through
+    a speculative generic model-output contract.
     """
     from lerobot import __version__
     from lerobot.rewards.robometer.modeling_robometer import RobometerRewardModel
     from lerobot.rewards.robometer.scoring_robometer import make_robometer_frame_scorer
-
-    if not isinstance(reward_model, RobometerRewardModel):
-        raise ValueError(
-            f"Offline scoring does not yet support reward model {type(reward_model).__name__}; "
-            "PR-2 supports RoboMeter"
-        )
+    from lerobot.rewards.rynnvalue.modeling_rynnvalue import RynnValueRewardModel
+    from lerobot.rewards.rynnvalue.scoring_rynnvalue import make_rynnvalue_frame_scorer
 
     config = reward_model.config
+    if isinstance(reward_model, RobometerRewardModel):
+        scorer = make_robometer_frame_scorer(
+            reward_model,
+            config,
+            batch_size=batch_size,
+            num_subsampled_frames=num_subsampled_frames,
+        )
+        adapter_id = "lerobot.robometer.frame_prefix"
+    elif isinstance(reward_model, RynnValueRewardModel):
+        scorer = make_rynnvalue_frame_scorer(
+            reward_model,
+            config,
+            dataset_fps=float(dataset.fps),
+            batch_size=batch_size,
+            inference_fps=inference_fps,
+            max_frames=max_frames,
+            horizon_s=horizon_s,
+        )
+        adapter_id = "lerobot.rynnvalue.causal_prefix"
+    else:
+        raise ValueError(
+            f"Offline scoring does not yet support reward model {type(reward_model).__name__}; "
+            "supported models are RoboMeter and RynnValue"
+        )
+
     resolved_model_id = model_id or config.pretrained_path
     if resolved_model_id is None:
         raise ValueError("model_id is required when the reward-model config has no pretrained_path")
-    scorer = make_robometer_frame_scorer(
-        reward_model,
-        config,
-        batch_size=batch_size,
-        num_subsampled_frames=num_subsampled_frames,
-    )
     provenance = {
         "schema_version": SCORING_SCHEMA_VERSION,
         "lerobot_version": __version__,
@@ -356,7 +373,7 @@ def score_dataset_with_reward_model(
             "revision": model_revision if model_revision is not None else config.pretrained_revision,
         },
         "adapter": {
-            "id": "lerobot.robometer.frame_prefix",
+            "id": adapter_id,
             "version": 1,
             "options": scorer.options,
         },
