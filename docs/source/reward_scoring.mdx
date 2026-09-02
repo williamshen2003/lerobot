@@ -17,7 +17,7 @@ The model adapter owns model-specific sampling and preprocessing. The shared run
 
 ## Score a Dataset
 
-PR-2 supports ROBOMETER:
+The shared command supports ROBOMETER and RynnValue. For ROBOMETER:
 
 ```bash
 uv run lerobot-score-dataset \
@@ -28,7 +28,22 @@ uv run lerobot-score-dataset \
 
 By default, the artifact is written to `reward_signals/robometer.parquet` under the local dataset root. Use `--output_path=/path/signals.parquet` to choose another location and `--episodes='[0,1]'` to select episodes.
 
-Pass `--push_to_hub=true` to upload the completed artifact to `reward_signals/robometer.parquet` in the dataset repository. Atomic episode parts remain local and are not published.
+For RynnValue:
+
+```bash
+uv run lerobot-score-dataset \
+    --dataset_repo_id=lerobot/example-dataset \
+    --reward_model_path=/path/to/converted-rynnvalue \
+    --device=cuda \
+    --inference_fps=1 \
+    --max_frames=8 \
+    --robot_description="a single-arm robot" \
+    --camera_description="a fixed third-person camera"
+```
+
+Its default output is `reward_signals/rynnvalue.parquet`. Pass `--horizon_s=SECONDS` only when a task-level horizon is known and bounded progress is needed. Raw remaining time and potential are always retained.
+
+Pass `--push_to_hub=true` to upload the completed artifact to `reward_signals/<model-type>.parquet` in the dataset repository. Atomic episode parts remain local and are not published.
 
 For an immutable run, pass commit hashes through `--dataset_revision` and `--reward_model_revision`. The requested/resolved revisions are stored in artifact provenance and must match when resuming.
 
